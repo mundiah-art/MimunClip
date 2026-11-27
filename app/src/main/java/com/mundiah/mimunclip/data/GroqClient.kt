@@ -143,7 +143,13 @@ class GroqClient(
                 val raw = resp.body?.string().orEmpty()
                 when {
                     resp.isSuccessful -> {
-                        val parsed = gson.fromJson(raw, WhisperResponse::class.java)
+                        val parsed = try {
+                            gson.fromJson(raw, WhisperResponse::class.java)
+                        } catch (e: Exception) {
+                            throw FatalGroqException(
+                                "Respons Whisper tidak bisa dibaca: ${e.message}"
+                            )
+                        }
                         val segments = (parsed.segments ?: emptyList())
                             .filter { it.text.isNotBlank() && it.end > it.start }
                             .sortedBy { it.start }
@@ -221,7 +227,11 @@ class GroqClient(
     }
 
     private fun extractContent(rawJson: String): String {
-        val parsed = gson.fromJson(rawJson, ChatResponse::class.java)
+        val parsed = try {
+            gson.fromJson(rawJson, ChatResponse::class.java)
+        } catch (e: Exception) {
+            throw IOException("Respons Qwen tidak bisa dibaca: ${e.message}")
+        }
         val content = parsed.choices?.firstOrNull()?.message?.content.orEmpty().trim()
         if (content.isBlank()) throw IOException("Respons Qwen kosong.")
         return content
