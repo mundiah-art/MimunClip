@@ -47,6 +47,7 @@ class QwenPlanner(private val groq: GroqClient) {
                 prompt, temperature = 0.1, maxTokens = 4096
             )
             val parsed = gson.fromJson(raw, CleanedResponse::class.java)
+                ?: return segments
             val byId = parsed.cleaned.orEmpty().associateBy { it.id }
             segments.map { seg ->
                 val clean = byId[seg.id]?.text?.trim()
@@ -114,7 +115,7 @@ class QwenPlanner(private val groq: GroqClient) {
                 "Kembalikan hanya JSON valid tanpa markdown atau penjelasan tambahan.",
                 prompt, temperature = 0.25, maxTokens = 4096
             )
-            gson.fromJson(raw, PlanResponse::class.java).clips.orEmpty()
+            gson.fromJson(raw, PlanResponse::class.java)?.clips.orEmpty()
         } catch (e: Exception) {
             emptyList()
         }
