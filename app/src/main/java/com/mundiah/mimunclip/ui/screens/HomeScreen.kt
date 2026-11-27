@@ -176,12 +176,18 @@ fun HomeScreen(
     }
 
     if (state.error != null) {
+        val clipboard = LocalClipboardManager.current
         AlertDialog(
             onDismissRequest = onClearError,
             title = { Text("Terjadi masalah") },
             text = { Text(state.error) },
             confirmButton = {
                 TextButton(onClick = onClearError) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(state.error))
+                }) { Text("Salin Error") }
             }
         )
     }

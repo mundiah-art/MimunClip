@@ -104,6 +104,7 @@ private fun AppScaffold(viewModel: MainViewModel) {
                 onToggle = { viewModel.toggleCandidate(it) },
                 onRender = { viewModel.renderSelected() },
                 onCancel = { viewModel.cancelWork(); viewModel.goTo(Screen.HOME) },
+                onClearError = { viewModel.clearError() },
                 modifier = Modifier.padding(padding)
             )
             Screen.RESULTS -> ResultsScreen(

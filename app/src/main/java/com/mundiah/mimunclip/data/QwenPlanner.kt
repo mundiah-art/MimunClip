@@ -6,6 +6,7 @@ import com.mundiah.mimunclip.model.ClipCandidate
 import com.mundiah.mimunclip.model.ClipDefaults
 import com.mundiah.mimunclip.model.ClipRange
 import com.mundiah.mimunclip.model.Segment
+import java.util.Locale
 
 /**
  * Perencanaan klip via Groq Qwen + planner lokal sebagai fallback.
@@ -83,7 +84,9 @@ class QwenPlanner(private val groq: GroqClient) {
         val transcript = segments.joinToString("\n") { s ->
             val bad = ContentFilter.firstForbiddenLabel(s.text)
             val tag = if (bad != null) " [TERLARANG:$bad]" else ""
-            "[${s.id}] [${"%.2f".format(s.start)}-${"%.2f".format(s.end)}]$tag ${s.text}"
+            val sStr = String.format(Locale.US, "%.2f", s.start)
+            val eStr = String.format(Locale.US, "%.2f", s.end)
+            "[${s.id}] [$sStr-$eStr]$tag ${s.text}"
         }
         val prompt = """
             Kamu adalah Asisten Copywriter TikTok Affiliate khusus Fashion Wanita (gaya Racun TikTok) & editor video ahli retensi.

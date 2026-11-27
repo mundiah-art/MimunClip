@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.mundiah.mimunclip.model.ClipCandidate
 import com.mundiah.mimunclip.ui.UiState
@@ -42,9 +44,11 @@ fun HookPickerScreen(
     onToggle: (Int) -> Unit,
     onRender: () -> Unit,
     onCancel: () -> Unit,
+    onClearError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var previewCandidate by remember { mutableStateOf<ClipCandidate?>(null) }
+    val clipboard = LocalClipboardManager.current
     val need = state.settings.clipCount
     val chosen = state.selectedStarts.size
 
@@ -144,11 +148,16 @@ fun HookPickerScreen(
 
     if (state.error != null) {
         AlertDialog(
-            onDismissRequest = { /* ditutup lewat tombol kembali */ },
+            onDismissRequest = onClearError,
             title = { Text("Terjadi masalah") },
             text = { Text(state.error) },
             confirmButton = {
-                TextButton(onClick = onCancel) { Text("Kembali") }
+                TextButton(onClick = onClearError) { Text("Tutup") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(state.error))
+                }) { Text("Salin Error") }
             }
         )
     }
