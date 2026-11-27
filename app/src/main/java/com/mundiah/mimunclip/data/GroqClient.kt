@@ -3,6 +3,8 @@ package com.mundiah.mimunclip.data
 import com.google.gson.Gson
 import com.mundiah.mimunclip.model.QwenDefaults
 import com.mundiah.mimunclip.model.Segment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -120,9 +122,16 @@ class GroqClient(
     /**
      * Transkripsi [audioFile] (mp3 mono 16kHz dari FfmpegRenderer).
      * Mengembalikan segmen ber-timestamp, diurutkan berdasarkan start.
+     *
+     * Suspend + Dispatchers.IO: OkHttp execute() adalah panggilan jaringan
+     * blocking — bila dipanggil dari Main thread (viewModelScope), Android
+     * melempar NetworkOnMainThreadException. Itu juga yang dulu tampil
+     * sebagai "Transkripsi gagal: null", karena exception itu tidak punya
+     * message.
      */
-    fun transcribe(audioFile: File, onKeyNote: ((String) -> Unit)? = null): List<Segment> {
-        return withRollingKey("Transkripsi Whisper") { key ->
+    suspend fun transcribe(audioFile: File, onKeyNote: ((String) -> Unit)? = null): List<Segment> =
+        withContext(Dispatchers.IO) {
+            withRollingKey("Transkripsi Whisper") { key ->
             val body = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
@@ -194,14 +203,16 @@ class GroqClient(
      * ditolak server (400 model tidak ditemukan / tidak didukung), otomatis
      * coba sekali dengan [fallbackModel].
      */
-    fun chatJson(
+    // Suspend + Dispatchers.IO: sama seperti transcribe — panggilan
+    // jaringan blocking tidak boleh jalan di Main thread.
+    suspend fun chatJson(
         model: String,
         fallbackModel: String,
         systemPrompt: String,
         userPrompt: String,
         temperature: Double = 0.25,
         maxTokens: Int = 4096,
-    ): String {
+    ): String = withContext(Dispatchers.IO) {
         val payload = mapOf(
             "model" to model,
             "messages" to listOf(
@@ -213,7 +224,7 @@ class GroqClient(
             "response_format" to mapOf("type" to "json_object"),
         )
         val json = gson.toJson(payload)
-        return try {
+        try {
             withRollingKey("Qwen ($model)") { key -> postJson(key, "/chat/completions", json) }
                 .let { extractContent(it) }
         } catch (e: IOException) {
