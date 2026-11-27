@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">MimunClip</string>
+    <string name="pick_video">Pilih Video</string>
+    <string name="settings">Pengaturan</string>
+    <string name="history">Riwayat Hasil</string>
+</resources>
