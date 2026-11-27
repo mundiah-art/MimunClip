@@ -32,7 +32,7 @@ class QwenPlanner(private val groq: GroqClient) {
     private data class CleanedSegment(val id: Int = 0, val text: String = "")
 
     /** Kembalikan segmen dengan teks yang sudah dirapikan; fallback = teks asli. */
-    fun cleanTranscript(segments: List<Segment>, model: String, fallbackModel: String): List<Segment> {
+    suspend fun cleanTranscript(segments: List<Segment>, model: String, fallbackModel: String): List<Segment> {
         val lines = segments.joinToString("\n") { "[${it.id}] ${it.text}" }
         val prompt = "Rapikan transkrip Bahasa Indonesia berikut dari video live " +
             "TikTok Shop fashion wanita. Perbaiki kata yang salah dengar, " +
@@ -74,7 +74,7 @@ class QwenPlanner(private val groq: GroqClient) {
      * lokal (mengikuti logika workflow lama: rentang berurutan dari segmen
      * hook, lewati segmen terlarang, target 35–50 detik).
      */
-    fun planCandidates(
+    suspend fun planCandidates(
         segments: List<Segment>,
         videoDurationSec: Double,
         model: String,
