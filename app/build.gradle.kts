@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // Wajib sejak Kotlin 2.0 bila compose diaktifkan (run #2 gagal tanpa ini).
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -42,9 +44,8 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.7.6"
-    }
+    // Versi Compose Compiler diatur oleh plugin org.jetbrains.kotlin.plugin.compose;
+    // composeOptions.kotlinCompilerExtensionVersion sudah tidak dipakai di Kotlin 2.0.
 
     packaging {
         resources {
