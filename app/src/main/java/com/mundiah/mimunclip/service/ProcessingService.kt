@@ -23,26 +23,45 @@ class ProcessingService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.mundiah.mimunclip.STOP_PROCESSING"
 
-        fun start(context: Context, title: String) {
-            val intent = Intent(context, ProcessingService::class.java)
-            intent.putExtra("title", title)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+        /**
+         * Jangan pernah melempar: di sebagian perangkat (terutama Xiaomi /
+         * HyperOS) startForegroundService bisa ditolak sistem dan itu TIDAK
+         * boleh mematikan proses transkripsi/render — notifikasi hanya
+         * pelengkap. Mengembalikan false bila service gagal dimulai.
+         */
+        fun start(context: Context, title: String): Boolean {
+            return try {
+                val intent = Intent(context, ProcessingService::class.java)
+                intent.putExtra("title", title)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            } catch (e: Exception) {
+                false
             }
         }
 
         fun updateProgress(context: Context, title: String, text: String, percent: Int) {
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            ensureChannel(nm)
-            nm.notify(NOTIFICATION_ID, buildNotification(context, title, text, percent))
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                ensureChannel(nm)
+                nm.notify(NOTIFICATION_ID, buildNotification(context, title, text, percent))
+            } catch (e: Exception) {
+                // Notifikasi gagal (mis. izin dicabut): proses tetap jalan.
+            }
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, ProcessingService::class.java))
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.cancel(NOTIFICATION_ID)
+            try {
+                context.stopService(Intent(context, ProcessingService::class.java))
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.cancel(NOTIFICATION_ID)
+            } catch (e: Exception) {
+                // Abaikan: service sudah berhenti atau tidak ada.
+            }
         }
 
         private fun ensureChannel(nm: NotificationManager) {
@@ -75,9 +94,15 @@ class ProcessingService : Service() {
             return START_NOT_STICKY
         }
         val title = intent?.getStringExtra("title") ?: "MimunClip"
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        ensureChannel(nm)
-        startForeground(NOTIFICATION_ID, buildNotification(this, title, "Memulai…", 0))
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            ensureChannel(nm)
+            startForeground(NOTIFICATION_ID, buildNotification(this, title, "Memulai…", 0))
+        } catch (e: Exception) {
+            // Sistem menolak foreground (mis. batasan OEM): jangan crash,
+            // service berhenti sendiri dan proses di ViewModel tetap jalan.
+            stopSelf()
+        }
         return START_NOT_STICKY
     }
 
