@@ -43,18 +43,21 @@ class FfmpegRenderer(private val context: Context) {
 
     fun probe(uri: Uri): VideoInfo {
         val retriever = MediaMetadataRetriever()
-        retriever.setDataSource(context, uri)
-        val durationMs = retriever.extractMetadata(
-            MediaMetadataRetriever.METADATA_KEY_DURATION
-        )?.toLongOrNull() ?: 0L
-        val width = retriever.extractMetadata(
-            MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
-        )?.toIntOrNull() ?: 0
-        val height = retriever.extractMetadata(
-            MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
-        )?.toIntOrNull() ?: 0
-        retriever.release()
-        return VideoInfo(durationMs / 1000.0, width, height)
+        try {
+            retriever.setDataSource(context, uri)
+            val durationMs = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_DURATION
+            )?.toLongOrNull() ?: 0L
+            val width = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+            )?.toIntOrNull() ?: 0
+            val height = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+            )?.toIntOrNull() ?: 0
+            return VideoInfo(durationMs / 1000.0, width, height)
+        } finally {
+            try { retriever.release() } catch (e: Exception) { /* abaikan */ }
+        }
     }
 
     /** Salin video pilihan user (content Uri) ke cache agar FFmpeg bisa membacanya. */
@@ -72,21 +75,40 @@ class FfmpegRenderer(private val context: Context) {
         onProgress: ((percent: Float, timeMs: Long) -> Unit)?,
         totalDurationMs: Long,
     ): FFmpegSession = suspendCancellableCoroutine { cont ->
-        val session = FFmpegKit.executeAsync(
-            command,
-            { s ->
-                if (cont.isActive) cont.resume(s)
-            },
-            { log -> /* log FFmpeg tersedia di logcat via FFmpegKitConfig jika perlu */ },
-            { statistics ->
-                if (totalDurationMs > 0) {
-                    val pct = (statistics.time.toFloat() / totalDurationMs * 100f)
-                        .coerceIn(0f, 100f)
-                    onProgress?.invoke(pct, statistics.time.toLong())
+        // FFmpegKit memuat library native (.so) saat pertama dipakai; bila
+        // gagal di perangkat (UnsatisfiedLinkError dsb.) itu adalah Error,
+        // bukan Exception — ubah jadi IllegalStateException supaya pemanggil
+        // bisa menampilkannya sebagai pesan error, bukan force close.
+        val session = try {
+            FFmpegKit.executeAsync(
+                command,
+                { s ->
+                    if (cont.isActive) cont.resume(s)
+                },
+                { log -> /* log FFmpeg tersedia di logcat via FFmpegKitConfig jika perlu */ },
+                { statistics ->
+                    if (totalDurationMs > 0) {
+                        val pct = (statistics.time.toFloat() / totalDurationMs * 100f)
+                            .coerceIn(0f, 100f)
+                        onProgress?.invoke(pct, statistics.time.toLong())
+                    }
                 }
+            )
+        } catch (e: Throwable) {
+            if (cont.isActive) {
+                cont.resumeWith(Result.failure(
+                    IllegalStateException(
+                        "FFmpeg gagal dimuat di perangkat ini " +
+                            "(${e.javaClass.simpleName}: ${e.message}). " +
+                            "Coba restart HP, lalu install ulang APK."
+                    )
+                ))
             }
-        )
-        cont.invokeOnCancellation { FFmpegKit.cancel(session.sessionId) }
+            return@suspendCancellableCoroutine
+        }
+        cont.invokeOnCancellation {
+            try { FFmpegKit.cancel(session.sessionId) } catch (e: Exception) { /* abaikan */ }
+        }
     }
 
     private fun checkSession(session: FFmpegSession, step: String) {
