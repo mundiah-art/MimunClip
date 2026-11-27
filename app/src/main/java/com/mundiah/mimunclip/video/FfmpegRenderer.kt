@@ -70,6 +70,11 @@ class FfmpegRenderer(private val context: Context) {
             out
         }
 
+    // Log FFmpeg dari perintah terakhir (dipotong), supaya pesan error di
+    // layar menampilkan penyebab aslinya — sebelumnya log callback diabaikan
+    // sehingga kegagalan render hanya tampil sebagai "Lihat logcat".
+    private var lastFfmpegLogs: String = ""
+
     private suspend fun runFfmpeg(
         command: String,
         onProgress: ((percent: Float, timeMs: Long) -> Unit)?,
@@ -79,13 +84,19 @@ class FfmpegRenderer(private val context: Context) {
         // gagal di perangkat (UnsatisfiedLinkError dsb.) itu adalah Error,
         // bukan Exception — ubah jadi IllegalStateException supaya pemanggil
         // bisa menampilkannya sebagai pesan error, bukan force close.
+        val logs = StringBuilder()
         val session = try {
             FFmpegKit.executeAsync(
                 command,
                 { s ->
+                    lastFfmpegLogs = logs.toString().takeLast(1500)
                     if (cont.isActive) cont.resume(s)
                 },
-                { log -> /* log FFmpeg tersedia di logcat via FFmpegKitConfig jika perlu */ },
+                { log ->
+                    // Simpan baris log terakhir saja agar tidak membengkak.
+                    logs.append(log.message).append('\n')
+                    if (logs.length > 4000) logs.delete(0, logs.length - 4000)
+                },
                 { statistics ->
                     if (totalDurationMs > 0) {
                         val pct = (statistics.time.toFloat() / totalDurationMs * 100f)
@@ -114,11 +125,55 @@ class FfmpegRenderer(private val context: Context) {
     private fun checkSession(session: FFmpegSession, step: String) {
         val rc = session.returnCode
         if (!ReturnCode.isSuccess(rc)) {
-            val err = session.failStackTrace?.take(500).orEmpty()
+            val detail = lastFfmpegLogs.trim()
+                .ifBlank { session.failStackTrace?.take(500).orEmpty() }
             throw IllegalStateException(
-                "$step gagal (returnCode=$rc). ${err.ifBlank { "Lihat logcat FFmpegKit." }}"
+                "$step gagal (returnCode=$rc). ${detail.ifBlank { "Lihat logcat FFmpegKit." }}"
             )
         }
+    }
+
+    /**
+     * Encoder video yang benar-benar tersedia di build FFmpeg ini.
+     * Fork ffmpeg-kit-maintained "full" mengklaim tanpa GPL — libx264
+     * (lisensi GPL) bisa jadi tidak disertakan, sehingga `-c:v libx264`
+     * gagal dengan "Unknown encoder". Deteksi sekali via `-encoders`,
+     * lalu pakai libx264 bila ada, h264_mediacodec (hardware Android)
+     * bila tidak, dan mpeg4 sebagai jalan terakhir.
+     */
+    private var cachedVideoEncoder: String? = null
+
+    private suspend fun videoEncoder(): String {
+        cachedVideoEncoder?.let { return it }
+        val output = try {
+            val session = runFfmpeg("-hide_banner -encoders", null, 0)
+            session.output.orEmpty()
+        } catch (e: Exception) {
+            ""
+        }
+        val hasEncoder: (String) -> Boolean = { name ->
+            output.lineSequence().any { line ->
+                line.trim().split(Regex("\\s+")).getOrNull(1) == name
+            }
+        }
+        val chosen = when {
+            hasEncoder("libx264") -> "libx264"
+            hasEncoder("h264_mediacodec") -> "h264_mediacodec"
+            else -> "mpeg4"
+        }
+        cachedVideoEncoder = chosen
+        return chosen
+    }
+
+    private fun encodeArgs(encoder: String): String = when (encoder) {
+        // Opsi preset/crf hanya berlaku untuk libx264; encoder lain
+        // menolak opsi yang tidak dikenalnya.
+        "libx264" -> "-c:v libx264 -preset veryfast -crf 23 " +
+            "-c:a aac -ac 2 -ar 44100 -movflags +faststart"
+        "h264_mediacodec" -> "-c:v h264_mediacodec -b:v 6M " +
+            "-c:a aac -ac 2 -ar 44100 -movflags +faststart"
+        else -> "-c:v mpeg4 -q:v 4 " +
+            "-c:a aac -ac 2 -ar 44100 -movflags +faststart"
     }
 
     suspend fun extractAudioForWhisper(
@@ -146,16 +201,19 @@ class FfmpegRenderer(private val context: Context) {
     private fun videoFilterChain(settings: RenderSettings): String {
         val filters = mutableListOf<String>()
         // Potong ke rasio vertikal 9:16 lalu skala ke 720x1280, 30 fps.
-        filters += "crop=min(iw\\,ih*9/16):ih"
+        // Ekspresi min() dibungkus tanda kutip tunggal agar koma di dalamnya
+        // tidak diartikan sebagai pemisah argumen filter — backslash
+        // (min(iw\,ih*9/16)) bisa rusak saat FFmpegKit mem-parse string
+        // perintah dan membuat filter graph gagal.
+        filters += "crop=w='min(iw,ih*9/16)':h=ih"
         filters += "scale=720:1280"
         filters += "fps=30"
+        // yuv420p: format yang diterima semua encoder (termasuk mediacodec).
+        filters += "format=yuv420p"
         if (settings.casEnabled) filters += "cas=0.9"
         if (settings.unsharpEnabled) filters += "unsharp=5:5:0.9:5:5:0.0"
         return filters.joinToString(",")
     }
-
-    private fun encodeArgs(): String =
-        "-c:v libx264 -preset veryfast -crf 23 -c:a aac -ac 2 -ar 44100 -movflags +faststart"
 
     private suspend fun renderRange(
         source: File,
@@ -169,7 +227,7 @@ class FfmpegRenderer(private val context: Context) {
         val cmd = "-y -hide_banner -loglevel error " +
             "-ss ${"%.3f".format(startSec)} -i \"${source.absolutePath}\" " +
             "-t ${"%.3f".format(durationSec)} " +
-            "-vf \"$vf\" ${encodeArgs()} \"${out.absolutePath}\""
+            "-vf \"$vf\" ${encodeArgs(videoEncoder())} \"${out.absolutePath}\""
         val session = runFfmpeg(
             cmd,
             { pct, _ -> onProgress?.invoke(pct) },
@@ -250,7 +308,7 @@ class FfmpegRenderer(private val context: Context) {
             val listFile = File(workDir, "clip_${clipIndex}_concat.txt")
             listFile.writeText(parts.joinToString("\n") { "file '${it.absolutePath}'" })
             val cmd = "-y -hide_banner -loglevel error -f concat -safe 0 " +
-                "-i \"${listFile.absolutePath}\" ${encodeArgs()} \"${rendered.absolutePath}\""
+                "-i \"${listFile.absolutePath}\" ${encodeArgs(videoEncoder())} \"${rendered.absolutePath}\""
             val session = runFfmpeg(cmd, { pct, _ -> onProgress?.invoke(60f + pct * 0.25f) }, 0)
             checkSession(session, "Gabung potongan klip")
             parts.forEach { it.delete() }
