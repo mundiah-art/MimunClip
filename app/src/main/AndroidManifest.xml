@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- WAJIB: tanpa ini OkHttp gagal dengan "Permission denied
+         (missing INTERNET permission?)" saat memanggil API Groq.
+         Sebelumnya tidak ketahuan karena network call selalu gagal
+         lebih dulu (FFmpeg, lalu NetworkOnMainThreadException). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Pick a video from storage / gallery -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <!-- Android 12 and below fallback -->
