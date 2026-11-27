@@ -86,6 +86,15 @@ dependencies {
     // See README.md "Kenapa bukan com.arthenica".
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
 
+    // WAJIB: kelas-kelas FFmpegKit (com.arthenica.ffmpegkit.*) merujuk
+    // com.arthenica.smartexception.java.Exceptions, tapi POM fork
+    // ffmpeg-kit-maintained TIDAK mendeklarasikan dependency transitif
+    // apa pun — tanpa baris ini app crash saat pertama memakai FFmpeg:
+    // NoClassDefFoundError: Lcom/arthenica/smartexception/java/Exceptions.
+    // (Diverifikasi 2026-11-27: POM 8.1.7 tanpa <dependencies>, dan
+    // smart-exception-java 0.2.1 ada di Maven Central, HTTP 200.)
+    implementation("com.arthenica:smart-exception-java:0.2.1")
+
     // Networking (Groq REST, no Groq SDK) + JSON.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
