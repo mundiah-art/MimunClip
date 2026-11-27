@@ -145,6 +145,11 @@ class GroqClient(
                     resp.isSuccessful -> {
                         val parsed = try {
                             gson.fromJson(raw, WhisperResponse::class.java)
+                                ?: throw FatalGroqException(
+                                    "Respons Whisper kosong/tidak bisa dibaca."
+                                )
+                        } catch (e: FatalGroqException) {
+                            throw e
                         } catch (e: Exception) {
                             throw FatalGroqException(
                                 "Respons Whisper tidak bisa dibaca: ${e.message}"
@@ -229,6 +234,9 @@ class GroqClient(
     private fun extractContent(rawJson: String): String {
         val parsed = try {
             gson.fromJson(rawJson, ChatResponse::class.java)
+                ?: throw IOException("Respons Qwen kosong/tidak bisa dibaca.")
+        } catch (e: IOException) {
+            throw e
         } catch (e: Exception) {
             throw IOException("Respons Qwen tidak bisa dibaca: ${e.message}")
         }
