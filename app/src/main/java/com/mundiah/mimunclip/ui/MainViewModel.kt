@@ -63,13 +63,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    settings = settingsStore.load(),
-                    groqKeysRaw = settingsStore.loadGroqKeysRaw(),
-                    groqKeysMasked = settingsStore.maskedKeysSummary(),
-                    history = historyStore.loadAll(),
-                )
+            try {
+                _state.update {
+                    it.copy(
+                        settings = settingsStore.load(),
+                        groqKeysRaw = settingsStore.loadGroqKeysRaw(),
+                        groqKeysMasked = settingsStore.maskedKeysSummary(),
+                        history = historyStore.loadAll(),
+                    )
+                }
+            } catch (e: Exception) {
+                // Pengaturan/riwayat gagal dibaca (mis. penyimpanan korup):
+                // app tetap jalan dengan nilai default, bukan force close.
+                _state.update { it.copy(error = "Pengaturan gagal dibaca, memakai default: ${e.message}") }
             }
         }
     }
@@ -153,8 +159,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         job = viewModelScope.launch {
             _state.update { it.copy(isBusy = true, progress = 0f, log = emptyList(), error = null) }
-            ProcessingService.start(context, "MimunClip — Transkripsi")
             try {
+                if (!ProcessingService.start(context, "MimunClip — Transkripsi")) {
+                    log("Notifikasi progres tidak bisa dimulai (sistem menolak); proses tetap jalan.")
+                }
                 setProgress("Menyalin video…", 0.02f)
                 inputFile = renderer.copyInputToCache(uri)
                 val source = inputFile!!
@@ -204,8 +212,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         screen = Screen.HOOKS, progress = 1f, progressLabel = "Selesai",
                     )
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // Throwable (bukan hanya Exception) supaya Error dari library
+                // native (mis. FFmpeg gagal dimuat) jadi pesan error di layar,
+                // bukan force close.
                 _state.update { it.copy(error = "Transkripsi gagal: ${e.message}") }
                 log("GAGAL: ${e.message}")
             } finally {
@@ -248,11 +259,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         job?.cancel()
         job = viewModelScope.launch {
             _state.update { it.copy(isBusy = true, progress = 0f, error = null) }
-            ProcessingService.start(context, "MimunClip — Render")
             val dir = workDir ?: File(context.cacheDir, "work_${System.currentTimeMillis()}").apply { mkdirs() }
             workDir = dir
             val results = mutableListOf<ClipResult>()
             try {
+                if (!ProcessingService.start(context, "MimunClip — Render")) {
+                    log("Notifikasi progres tidak bisa dimulai (sistem menolak); proses tetap jalan.")
+                }
                 chosen.forEachIndexed { index, candidate ->
                     val label = "Render klip ${index + 1}/${chosen.size}: ${candidate.title}"
                     setProgress(label, index.toFloat() / chosen.size)
@@ -292,7 +305,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         progressLabel = "Selesai — ${results.size} klip tersimpan",
                     )
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _state.update { it.copy(error = "Render gagal: ${e.message}") }
                 log("GAGAL: ${e.message}")
