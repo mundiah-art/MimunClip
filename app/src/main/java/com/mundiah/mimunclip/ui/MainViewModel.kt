@@ -216,9 +216,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // Throwable (bukan hanya Exception) supaya Error dari library
                 // native (mis. FFmpeg gagal dimuat) jadi pesan error di layar,
-                // bukan force close.
-                _state.update { it.copy(error = "Transkripsi gagal: ${e.message}") }
-                log("GAGAL: ${e.message}")
+                // bukan force close. Pesan error TIDAK boleh "null": sebagian
+                // exception (mis. NullPointerException) tidak punya message,
+                // jadi tampilkan nama kelasnya supaya penyebabnya terlacak.
+                val detail = e.message?.takeIf { it.isNotBlank() }
+                    ?: e.javaClass.simpleName
+                _state.update { it.copy(error = "Transkripsi gagal: $detail") }
+                log("GAGAL: ${e.javaClass.simpleName}: $detail")
             } finally {
                 ProcessingService.stop(context)
                 _state.update { it.copy(isBusy = false) }
@@ -307,8 +311,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _state.update { it.copy(error = "Render gagal: ${e.message}") }
-                log("GAGAL: ${e.message}")
+                val detail = e.message?.takeIf { it.isNotBlank() }
+                    ?: e.javaClass.simpleName
+                _state.update { it.copy(error = "Render gagal: $detail") }
+                log("GAGAL: ${e.javaClass.simpleName}: $detail")
             } finally {
                 ProcessingService.stop(context)
                 _state.update { it.copy(isBusy = false) }
