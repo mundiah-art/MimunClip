@@ -30,6 +30,7 @@ class SettingsStore(private val context: Context) {
 
     companion object {
         private val KEY_CLIP_COUNT = intPreferencesKey("clip_count")
+        private val KEY_FAST_COPY = booleanPreferencesKey("fast_stream_copy")
         private val KEY_SLSR = booleanPreferencesKey("slsr_enabled")
         private val KEY_CAS = booleanPreferencesKey("cas_enabled")
         private val KEY_UNSHARP = booleanPreferencesKey("unsharp_enabled")
@@ -46,9 +47,10 @@ class SettingsStore(private val context: Context) {
         val theme = prefs[KEY_THEME] ?: "system"
         return RenderSettings(
             clipCount = (prefs[KEY_CLIP_COUNT] ?: 2).coerceIn(1, 4),
+            fastStreamCopy = prefs[KEY_FAST_COPY] ?: true,
             slsrEnabled = prefs[KEY_SLSR] ?: true,
-            casEnabled = prefs[KEY_CAS] ?: true,
-            unsharpEnabled = prefs[KEY_UNSHARP] ?: true,
+            casEnabled = prefs[KEY_CAS] ?: false,
+            unsharpEnabled = prefs[KEY_UNSHARP] ?: false,
             qwenModel = (prefs[KEY_QWEN_MODEL] ?: QwenDefaults.MODEL).ifBlank { QwenDefaults.MODEL },
             qwenFallbackModel = (prefs[KEY_QWEN_FALLBACK] ?: QwenDefaults.FALLBACK_MODEL)
                 .ifBlank { QwenDefaults.FALLBACK_MODEL },
@@ -63,6 +65,7 @@ class SettingsStore(private val context: Context) {
     suspend fun save(settings: RenderSettings) {
         context.dataStore.edit { prefs ->
             prefs[KEY_CLIP_COUNT] = settings.clipCount.coerceIn(1, 4)
+            prefs[KEY_FAST_COPY] = settings.fastStreamCopy
             prefs[KEY_SLSR] = settings.slsrEnabled
             prefs[KEY_CAS] = settings.casEnabled
             prefs[KEY_UNSHARP] = settings.unsharpEnabled

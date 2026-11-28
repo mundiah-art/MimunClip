@@ -113,20 +113,27 @@ fun HomeScreen(
         }
         item {
             ToggleRow(
+                label = "Mode Kilat (Stream Copy tanpa re-encode)",
+                checked = state.settings.fastStreamCopy,
+                onChange = { onSettingsChange(state.settings.copy(fastStreamCopy = it)) }
+            )
+            ToggleRow(
                 label = "SLSR inject",
                 checked = state.settings.slsrEnabled,
                 onChange = { onSettingsChange(state.settings.copy(slsrEnabled = it)) }
             )
-            ToggleRow(
-                label = "CAS 90%",
-                checked = state.settings.casEnabled,
-                onChange = { onSettingsChange(state.settings.copy(casEnabled = it)) }
-            )
-            ToggleRow(
-                label = "Unsharp 90%",
-                checked = state.settings.unsharpEnabled,
-                onChange = { onSettingsChange(state.settings.copy(unsharpEnabled = it)) }
-            )
+            if (!state.settings.fastStreamCopy) {
+                ToggleRow(
+                    label = "CAS 90%",
+                    checked = state.settings.casEnabled,
+                    onChange = { onSettingsChange(state.settings.copy(casEnabled = it)) }
+                )
+                ToggleRow(
+                    label = "Unsharp 90%",
+                    checked = state.settings.unsharpEnabled,
+                    onChange = { onSettingsChange(state.settings.copy(unsharpEnabled = it)) }
+                )
+            }
             Text(
                 "Groq key: " + if (state.groqKeysMasked.isBlank()) "belum diisi — buka Pengaturan" else state.groqKeysMasked,
                 style = MaterialTheme.typography.bodySmall

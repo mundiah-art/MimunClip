@@ -236,6 +236,56 @@ class FfmpegRenderer(private val context: Context) {
         return filters.joinToString(",")
     }
 
+    private suspend fun renderRangeStreamCopy(
+        source: File,
+        startSec: Double,
+        durationSec: Double,
+        out: File,
+        onProgress: ((Float) -> Unit)?,
+    ) {
+        val ssStr = String.format(Locale.US, "%.3f", startSec.coerceAtLeast(0.0))
+        val durStr = String.format(Locale.US, "%.3f", durationSec.coerceAtLeast(0.1))
+        val args = arrayOf(
+            "-y", "-hide_banner", "-loglevel", "warning",
+            "-ss", ssStr,
+            "-i", source.absolutePath,
+            "-t", durStr,
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
+            out.absolutePath
+        )
+        val session = runFfmpeg(
+            args,
+            { pct, _ -> onProgress?.invoke(pct) },
+            (durationSec * 1000).toLong()
+        )
+        checkSession(session, "Fast trim (stream copy)")
+        if (!out.exists() || out.length() == 0L) {
+            throw IllegalStateException("Hasil fast trim kosong.")
+        }
+    }
+
+    private suspend fun concatStreamCopy(
+        listFile: File,
+        out: File,
+        onProgress: ((Float) -> Unit)?,
+    ) {
+        val args = arrayOf(
+            "-y", "-hide_banner", "-loglevel", "warning",
+            "-f", "concat", "-safe", "0",
+            "-i", listFile.absolutePath,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            out.absolutePath
+        )
+        val session = runFfmpeg(args, { pct, _ -> onProgress?.invoke(pct) }, 0)
+        checkSession(session, "Fast concat (stream copy)")
+        if (!out.exists() || out.length() == 0L) {
+            throw IllegalStateException("Hasil fast concat kosong.")
+        }
+    }
+
     private suspend fun renderRange(
         source: File,
         startSec: Double,
@@ -335,49 +385,76 @@ class FfmpegRenderer(private val context: Context) {
         onProgress: ((Float) -> Unit)? = null,
     ): RenderOutcome = withContext(Dispatchers.IO) {
         val rendered = File(workDir, "clip_${clipIndex}_render.mp4")
-        if (candidate.ranges.size == 1) {
-            val r = candidate.ranges[0]
-            renderRange(source, r.start, r.end - r.start, rendered, settings) { pct ->
-                onProgress?.invoke(pct * 0.85f)
+        val useFastCopy = settings.fastStreamCopy && !settings.casEnabled && !settings.unsharpEnabled
+
+        if (useFastCopy) {
+            if (candidate.ranges.size == 1) {
+                val r = candidate.ranges[0]
+                renderRangeStreamCopy(source, r.start, r.end - r.start, rendered) { pct ->
+                    onProgress?.invoke(pct * 0.9f)
+                }
+            } else {
+                val parts = mutableListOf<File>()
+                candidate.ranges.forEachIndexed { i, r ->
+                    val part = File(workDir, "clip_${clipIndex}_part_$i.mp4")
+                    renderRangeStreamCopy(source, r.start, r.end - r.start, part) { pct ->
+                        val base = i.toFloat() / candidate.ranges.size
+                        onProgress?.invoke((base + pct / 100f / candidate.ranges.size) * 70f)
+                    }
+                    parts += part
+                }
+                val listFile = File(workDir, "clip_${clipIndex}_concat.txt")
+                listFile.writeText(parts.joinToString("\n") { "file '${it.absolutePath}'" })
+                concatStreamCopy(listFile, rendered) { pct ->
+                    onProgress?.invoke(70f + pct * 0.2f)
+                }
+                parts.forEach { it.delete() }
             }
         } else {
-            val parts = mutableListOf<File>()
-            candidate.ranges.forEachIndexed { i, r ->
-                val part = File(workDir, "clip_${clipIndex}_part_$i.mp4")
-                renderRange(source, r.start, r.end - r.start, part, settings) { pct ->
-                    val base = i.toFloat() / candidate.ranges.size
-                    onProgress?.invoke((base + pct / 100f / candidate.ranges.size) * 60f)
+            if (candidate.ranges.size == 1) {
+                val r = candidate.ranges[0]
+                renderRange(source, r.start, r.end - r.start, rendered, settings) { pct ->
+                    onProgress?.invoke(pct * 0.85f)
                 }
-                parts += part
-            }
-            val listFile = File(workDir, "clip_${clipIndex}_concat.txt")
-            listFile.writeText(parts.joinToString("\n") { "file '${it.absolutePath}'" })
-            val encoders = availableEncoders()
-            var concatError: IllegalStateException? = null
-            var concatOk = false
-            for (encoder in encoders) {
-                if (rendered.exists()) rendered.delete()
-                val args = buildList {
-                    addAll(listOf("-y", "-hide_banner", "-loglevel", "warning"))
-                    addAll(listOf("-f", "concat", "-safe", "0", "-i", listFile.absolutePath))
-                    addAll(encodeArgs(encoder))
-                    add(rendered.absolutePath)
-                }.toTypedArray()
-                val session = runFfmpeg(args, { pct, _ -> onProgress?.invoke(60f + pct * 0.25f) }, 0)
-                if (ReturnCode.isSuccess(session.returnCode) && rendered.exists() && rendered.length() > 0L) {
-                    concatOk = true
-                    break
+            } else {
+                val parts = mutableListOf<File>()
+                candidate.ranges.forEachIndexed { i, r ->
+                    val part = File(workDir, "clip_${clipIndex}_part_$i.mp4")
+                    renderRange(source, r.start, r.end - r.start, part, settings) { pct ->
+                        val base = i.toFloat() / candidate.ranges.size
+                        onProgress?.invoke((base + pct / 100f / candidate.ranges.size) * 60f)
+                    }
+                    parts += part
                 }
-                val detail = sessionLogs(session).takeLast(1200)
-                concatError = IllegalStateException(
-                    "Gabung potongan klip gagal (encoder=$encoder, returnCode=${session.returnCode}). " +
-                        detail.ifBlank { "Tidak ada log dari FFmpeg." }
-                )
+                val listFile = File(workDir, "clip_${clipIndex}_concat.txt")
+                listFile.writeText(parts.joinToString("\n") { "file '${it.absolutePath}'" })
+                val encoders = availableEncoders()
+                var concatError: IllegalStateException? = null
+                var concatOk = false
+                for (encoder in encoders) {
+                    if (rendered.exists()) rendered.delete()
+                    val args = buildList {
+                        addAll(listOf("-y", "-hide_banner", "-loglevel", "warning"))
+                        addAll(listOf("-f", "concat", "-safe", "0", "-i", listFile.absolutePath))
+                        addAll(encodeArgs(encoder))
+                        add(rendered.absolutePath)
+                    }.toTypedArray()
+                    val session = runFfmpeg(args, { pct, _ -> onProgress?.invoke(60f + pct * 0.25f) }, 0)
+                    if (ReturnCode.isSuccess(session.returnCode) && rendered.exists() && rendered.length() > 0L) {
+                        concatOk = true
+                        break
+                    }
+                    val detail = sessionLogs(session).takeLast(1200)
+                    concatError = IllegalStateException(
+                        "Gabung potongan klip gagal (encoder=$encoder, returnCode=${session.returnCode}). " +
+                            detail.ifBlank { "Tidak ada log dari FFmpeg." }
+                    )
+                }
+                if (!concatOk) {
+                    throw concatError ?: IllegalStateException("Gabung potongan klip gagal.")
+                }
+                parts.forEach { it.delete() }
             }
-            if (!concatOk) {
-                throw concatError ?: IllegalStateException("Gabung potongan klip gagal.")
-            }
-            parts.forEach { it.delete() }
         }
 
         if (!settings.slsrEnabled) {

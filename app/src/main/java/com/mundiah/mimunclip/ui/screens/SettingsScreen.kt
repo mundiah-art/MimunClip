@@ -120,14 +120,19 @@ fun SettingsScreen(
         }
         item {
             Text("Render", style = MaterialTheme.typography.titleSmall)
+            ToggleRow2("Mode Kilat (Stream Copy tanpa re-encode)", settings.fastStreamCopy) {
+                onSaveSettings(settings.copy(fastStreamCopy = it))
+            }
             ToggleRow2("SLSR inject", settings.slsrEnabled) {
                 onSaveSettings(settings.copy(slsrEnabled = it))
             }
-            ToggleRow2("CAS 90%", settings.casEnabled) {
-                onSaveSettings(settings.copy(casEnabled = it))
-            }
-            ToggleRow2("Unsharp 90%", settings.unsharpEnabled) {
-                onSaveSettings(settings.copy(unsharpEnabled = it))
+            if (!settings.fastStreamCopy) {
+                ToggleRow2("CAS 90%", settings.casEnabled) {
+                    onSaveSettings(settings.copy(casEnabled = it))
+                }
+                ToggleRow2("Unsharp 90%", settings.unsharpEnabled) {
+                    onSaveSettings(settings.copy(unsharpEnabled = it))
+                }
             }
         }
         item {

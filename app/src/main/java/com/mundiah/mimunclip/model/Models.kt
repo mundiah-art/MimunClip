@@ -55,9 +55,10 @@ data class ClipResult(
 /** Pengaturan render yang dipilih user di layar utama / pengaturan. */
 data class RenderSettings(
     val clipCount: Int = 2,
+    val fastStreamCopy: Boolean = true, // true = potong super cepat tanpa re-encode (-c copy)
     val slsrEnabled: Boolean = true,
-    val casEnabled: Boolean = true,
-    val unsharpEnabled: Boolean = true,
+    val casEnabled: Boolean = false,
+    val unsharpEnabled: Boolean = false,
     val qwenModel: String = QwenDefaults.MODEL,
     val qwenFallbackModel: String = QwenDefaults.FALLBACK_MODEL,
     val darkTheme: Boolean? = null, // null = ikuti sistem
